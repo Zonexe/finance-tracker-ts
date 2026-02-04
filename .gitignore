@@ -1,0 +1,17 @@
+# Зависимости (библиотеки)
+node_modules/
+**/node_modules/
+
+# Секреты сервера (пароли от БД и JWT)
+server/.env
+
+# Сборка фронтенда
+client/dist/
+
+# Настройки редактора
+.vscode/
+client/.vscode/
+
+# Логи и временные файлы
+*.log
+.DS_Store
