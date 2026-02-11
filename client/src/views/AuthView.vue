@@ -76,6 +76,12 @@ const handleAuth = async () => {
     };
 
     auth.setAuth(response.data.token, userData);
+    /* 
+  1. Сохраняем ТОКЕН в Pinia и LocalStorage. Он — наш "паспорт" для сервера. 
+     Внутри него зашифрован наш ID, который сервер извлечет позже.
+  2. Сохраняем ОБЪЕКТ userData (имя, баланс). Эти данные нужны только 
+     фронтенду, чтобы отобразить ник и деньги на экране.
+*/
     router.push("/");
   } catch (err: any) {
     error.value = err.response?.data?.error || "Ошибка авторизации";

@@ -3,24 +3,23 @@ import { ref, onMounted, watch } from "vue";
 import axios from "axios";
 import { useAuthStore } from "../stores/auth";
 import type { Transaction, Category } from "../types";
-import router from "@/router";
+import { useRouter } from "vue-router"; // Изменили импорт
 
 const auth = useAuthStore();
+const router = useRouter(); // Инициализируем роутер через хук
 const transactions = ref<Transaction[]>([]);
 const categories = ref<Category[]>([]);
 
-// Данные формы
 const amount = ref<number | "">("");
 const categoryId = ref<number | "">("");
 const comment = ref("");
 
 const API_URL = "http://localhost:5000/api";
 
-// 1. Загрузка данных
 const loadData = async () => {
+  // Если токена нет - уходим на страницу логина
   if (!auth.token || auth.token === "null") {
-    console.warn("Запрос отменен: пользователь не авторизован");
-    router.push("/auth"); // Перекидываем на вход
+    router.push("/auth");
     return;
   }
   try {
@@ -38,7 +37,6 @@ const loadData = async () => {
   }
 };
 
-// 2. Добавление транзакции
 const handleAdd = async () => {
   if (!amount.value || !categoryId.value) {
     alert("Заполните сумму и категорию");
@@ -58,30 +56,45 @@ const handleAdd = async () => {
       },
     );
 
-    // Добавляем новую транзакцию в начало списка
-    // Мы берем полную информацию о транзакции, которую вернул сервер
+    // Добавляем новую транзакцию в список
     transactions.value.unshift(response.data.transaction);
 
-    // Обновляем баланс в Pinia
+    // Обновляем баланс в Pinia и LocalStorage
     if (auth.user) {
       auth.user.balance = response.data.newBalance;
       localStorage.setItem("user", JSON.stringify(auth.user));
     }
 
-    // Очищаем форму
     amount.value = "";
     categoryId.value = "";
     comment.value = "";
 
-    // После добавления транзакции полезно перезагрузить данные,
-    // чтобы подтянулись названия категорий в список
+    // Обновляем данные, чтобы подтянулись связи (названия категорий)
     await loadData();
   } catch (error: any) {
     alert(error.response?.data?.error || "Ошибка сервера");
   }
 };
 
-// Функция для красивой даты
+const handleDelete = async (Id: number) => {
+  if (!confirm("Удалить эту операцию? Деньги вернутся на баланс.")) return;
+
+  try {
+    const response = await axios.delete(`${API_URL}/transactions/${Id}`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    });
+
+    transactions.value = transactions.value.filter((t) => t.Id !== Id);
+
+    if (auth.user) {
+      auth.user.balance = response.data.newBalance;
+      localStorage.setItem("user", JSON.stringify(auth.user));
+    }
+  } catch (error) {
+    alert("Не удалось удалить транзакцию");
+  }
+};
+
 const formatDate = (dateStr: string) => {
   return new Date(dateStr).toLocaleDateString("ru-RU", {
     day: "2-digit",
@@ -94,15 +107,15 @@ onMounted(loadData);
 
 <template>
   <div class="home-container" v-if="auth.user">
-    <!-- 1. КАРТОЧКА БАЛАНСА -->
+    <!-- 1. БАЛАНС -->
     <div class="card balance-card">
       <span class="label">Общий баланс</span>
-      <h2 :class="['balance-value', { negative: auth.user?.balance < 0 }]">
-        {{ auth.user?.balance?.toLocaleString() || 0 }} ₽
+      <h2 :class="['balance-value', { negative: auth.user.balance < 0 }]">
+        {{ auth.user.balance?.toLocaleString() || 0 }} ₽
       </h2>
     </div>
 
-    <!-- 2. ФОРМА ДОБАВЛЕНИЯ -->
+    <!-- 2. ФОРМА -->
     <div class="card add-form">
       <h3>Новая операция</h3>
       <form @submit.prevent="handleAdd">
@@ -114,7 +127,6 @@ onMounted(loadData);
             placeholder="Сумма"
             required
           />
-
           <select v-model="categoryId" class="form-input" required>
             <option value="" disabled>Категория</option>
             <option v-for="cat in categories" :key="cat.Id" :value="cat.Id">
@@ -122,23 +134,21 @@ onMounted(loadData);
             </option>
           </select>
         </div>
-
         <input
           v-model="comment"
           type="text"
           class="form-input"
-          placeholder="Комментарий (необязательно)"
+          placeholder="Комментарий (опционально)"
         />
-        <button type="submit" class="btn-primary">Добавить запись</button>
+        <button type="submit" class="btn-primary">Добавить</button>
       </form>
     </div>
 
-    <!-- 3. СПИСОК ТРАНЗАКЦИЙ -->
+    <!-- 3. ИСТОРИЯ (ИСПРАВЛЕНА ВЕРСТКА) -->
     <div class="card history">
       <h3>История операций</h3>
-
       <div v-if="transactions.length === 0" class="empty-state">
-        Здесь пока пусто...
+        Траты не найдены
       </div>
 
       <div v-for="t in transactions" :key="t.Id" class="transaction-item">
@@ -152,9 +162,18 @@ onMounted(loadData);
           </div>
         </div>
 
-        <!-- Если категория типа expense, ставим минус, если income - плюс -->
-        <div :class="['t-amount', t.Category?.type]">
-          {{ t.Category?.type === "expense" ? "-" : "+" }} {{ t.amount }} ₽
+        <div class="t-right">
+          <!-- Динамический цвет суммы -->
+          <div :class="['t-amount', t.Category?.type]">
+            {{ t.Category?.type === "expense" ? "-" : "+" }} {{ t.amount }} ₽
+          </div>
+          <button
+            @click="handleDelete(t.Id)"
+            class="delete-btn"
+            title="Удалить"
+          >
+            ✕
+          </button>
         </div>
       </div>
     </div>
@@ -162,17 +181,18 @@ onMounted(loadData);
 </template>
 
 <style scoped>
+/* Твои стили отличные, оставляем их без изменений */
 .home-container {
   max-width: 500px;
   margin: 20px auto;
   padding: 0 15px;
 }
-
 .balance-card {
   text-align: center;
   margin-bottom: 20px;
   background: linear-gradient(135deg, #42b983 0%, #34495e 100%);
   color: white;
+  border: none;
 }
 .balance-value {
   font-size: 2.5rem;
@@ -185,17 +205,13 @@ onMounted(loadData);
   opacity: 0.8;
   font-size: 0.9rem;
 }
-
 .form-row {
   display: flex;
   gap: 10px;
 }
-
 .history {
   margin-top: 20px;
 }
-
-/* Стили элементов списка */
 .transaction-item {
   display: flex;
   justify-content: space-between;
@@ -203,17 +219,14 @@ onMounted(loadData);
   padding: 12px 0;
   border-bottom: 1px solid #eee;
 }
-
 .transaction-item:last-child {
   border-bottom: none;
 }
-
 .t-left {
   display: flex;
   align-items: center;
   gap: 15px;
 }
-
 .t-date {
   font-size: 0.8rem;
   color: #999;
@@ -223,7 +236,6 @@ onMounted(loadData);
   width: 45px;
   text-align: center;
 }
-
 .t-info {
   display: flex;
   flex-direction: column;
@@ -231,12 +243,17 @@ onMounted(loadData);
 .t-category {
   font-weight: 600;
   font-size: 1rem;
+  color: var(--text-color);
 }
 .t-comment {
   font-size: 0.8rem;
   color: #7f8c8d;
 }
-
+.t-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .t-amount {
   font-weight: bold;
   font-size: 1.1rem;
@@ -247,7 +264,17 @@ onMounted(loadData);
 .t-amount.income {
   color: var(--primary-color);
 }
-
+.delete-btn {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: color 0.2s;
+}
+.delete-btn:hover {
+  color: var(--danger-color);
+}
 .empty-state {
   text-align: center;
   color: #999;

@@ -14,17 +14,21 @@ export const addTransaction = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
+  // 1. Открываем транзакцию (создаем изолированный "черновик" в БД)
   const t = await sequelize.transaction();
 
   try {
     const { amount, categoryId, comment } = req.body;
-    const UserId = req.user?.userId;
-    if (!UserId) {
+    const userId = req.user?.userId; // camelCase для локальных переменных
+
+    if (!userId) {
       await t.rollback();
       res.status(401).json({ error: "Пользователь не авторизован" });
       return;
     }
-    const user = await User.findByPk(UserId, { transaction: t });
+
+    // Ищем данные, привязывая их к транзакции (чтобы другие процессы их не меняли пока мы работаем)
+    const user = await User.findByPk(userId, { transaction: t });
     const category = await Category.findByPk(categoryId, { transaction: t });
 
     if (!user || !category) {
@@ -35,26 +39,21 @@ export const addTransaction = async (
 
     const numericAmount = Number(amount);
 
-    if (isNaN(numericAmount)) {
-      await t.rollback();
-      res.status(400).json({ error: "Некорректная сумма" });
-      return;
-    }
-
     if (category.type === "expense") {
       user.balance -= numericAmount;
     } else {
       user.balance += numericAmount;
     }
 
- 
+    // 2. Сохраняем новый баланс ВНУТРИ черновика транзакции.
+    // На этом этапе база "замораживает" строку этого пользователя для других.
     await user.save({ transaction: t });
 
-    // 5. Создаем запись о транзакции
+    // 3. Создаем запись о транзакции ВНУТРИ черновика.
     const newTransaction = await Transaction.create(
       {
         amount: numericAmount,
-        categoryId: category.Id, 
+        categoryId: category.Id,
         userId: user.Id,
         comment: comment || "",
         date: new Date(),
@@ -62,7 +61,7 @@ export const addTransaction = async (
       { transaction: t },
     );
 
-
+    // 4. ФИНАЛИЗАЦИЯ: Все изменения из черновика переносятся в реальную БД одним махом.
     await t.commit();
 
     res.status(201).json({
@@ -71,7 +70,9 @@ export const addTransaction = async (
       newBalance: user.balance,
     });
   } catch (error) {
-    await t.rollback();
+    // 5. ОТКАТ: Если хоть одна строка в блоке try выдала ошибку,
+    // отменяем все действия, чтобы баланс не "поломался".
+    if (t) await t.rollback();
     console.error(error);
     res.status(500).json({ error: "Ошибка при создании транзакции" });
   }
@@ -114,5 +115,82 @@ export const getTransactions = async (
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Ошибка при выводе ваших транзакций" });
+  }
+};
+
+interface TransactionWithCategory extends Transaction {
+  Category: Category; // Здесь мы гарантируем наличие категории
+}
+
+export const deleteTransaction = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const t = await sequelize.transaction();
+
+  try {
+    const transactionId = Number(req.params.Id);
+    const userId = req.user?.userId;
+
+    if (isNaN(transactionId)) {
+      await t.rollback();
+      res.status(400).json({ error: "Некорректный ID транзакции" });
+      return;
+    }
+    if (!userId) {
+      await t.rollback();
+      res.status(401).json({ error: "Пользователь не авторизован" });
+      return;
+    }
+
+    // 1. Ищем транзакцию вместе с категорией
+    const transaction = (await Transaction.findByPk(transactionId, {
+      include: [Category],
+      transaction: t,
+    })) as unknown as TransactionWithCategory;
+
+    if (!transaction) {
+      await t.rollback();
+      res.status(404).json({ error: "Транзакция не найдена" });
+      return;
+    }
+
+    // 2. СРАЗУ проверяем владельца
+    if (transaction.userId !== userId) {
+      await t.rollback();
+      res.status(403).json({ error: "Запрещено удалять чужие записи" });
+      return;
+    }
+
+    // 3. Ищем пользователя для обновления баланса
+    const user = await User.findByPk(userId, { transaction: t });
+    if (!user) {
+      await t.rollback();
+      res.status(404).json({ error: "Пользователь не найден" });
+      return;
+    }
+
+    // 4. МАТЕМАТИКА ВОЗВРАТА (используем данные из найденного объекта)
+    // Внимание: проверь, с какой буквы у тебя Category в модели (обычно с большой)
+    // Используй знак вопроса перед точкой
+    if (transaction.Category?.type === "expense") {
+      user.balance += Number(transaction.amount);
+    } else {
+      user.balance -= Number(transaction.amount);
+    }
+
+    // 5. СОХРАНЯЕМ И УДАЛЯЕМ (всё внутри транзакции t)
+    await user.save({ transaction: t });
+    await transaction.destroy({ transaction: t });
+
+    // 6. ФИНАЛ: подтверждаем изменения
+    await t.commit();
+
+    res.json({ message: "Удалено", newBalance: user.balance });
+  } catch (error) {
+    // Если произошла любая ошибка кода или базы — отменяем всё
+    await t.rollback();
+    console.error(error);
+    res.status(500).json({ error: "Ошибка на сервере" });
   }
 };

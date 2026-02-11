@@ -1,4 +1,5 @@
 import { DataTypes, Model, Optional } from "sequelize";
+import Category from "./Category";
 import sequelize from "../db";
 
 interface TransactionAttributes {
@@ -8,6 +9,7 @@ interface TransactionAttributes {
   date: Date;
   userId: number;
   categoryId: number;
+  Category?: Category;
 }
 
 interface TransactionCreationAttributes extends Optional<

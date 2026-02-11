@@ -10,28 +10,33 @@ export const authMiddleware = (
   res: Response,
   next: NextFunction,
 ) => {
-  const authHeader = req.headers.authorization; // Более надежный способ получения
+  const authHeader = req.headers.authorization;
+
+  // 1. Извлекаем токен из строки "Bearer <token>".
+  // Мы берем только вторую часть массива после пробела.
   const token = authHeader?.split(" ")[1];
 
-  console.log("ПРИШЕЛ ТОКЕН:", token);
   if (!token) {
     return res.status(401).json({ error: "Требуется авторизация" });
   }
 
   try {
-    const secret = process.env.JWT_SECRET;
+    // 2. Берем секретный ключ. Он нужен для проверки подлинности токена.
+    const secret = process.env.JWT_SECRET as string;
 
-    // ПРОВЕРКА: если секрет не подгрузился из .env
-    if (!secret) {
-      console.error("❌ ОШИБКА: JWT_SECRET не найден в переменных окружения!");
-      return res.status(500).json({ error: "Ошибка конфигурации сервера" });
-    }
-
+    // 3. ПРОВЕРКА И РАСШИФРОВКА:
+    // jwt.verify проверяет, не изменен ли токен, и извлекает данные (userId).
+    // 'as JwtUser' подсказывает TypeScript, какие именно поля есть внутри.
     const decoded = jwt.verify(token, secret) as JwtUser;
+
+    // 4. ПЕРЕДАЧА ДАННЫХ ДАЛЬШЕ:
+    // Записываем расшифрованный ID в объект запроса,
+    // чтобы контроллеры могли сразу его использовать.
     req.user = decoded;
+
+    // Пропускаем запрос к следующей функции (контроллеру)
     next();
   } catch (error: any) {
-    // ВАЖНО: выводим реальную причину ошибки в консоль бэкенда
     console.error("❌ Ошибка токена:", error.message);
     return res
       .status(403)
