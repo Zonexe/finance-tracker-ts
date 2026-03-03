@@ -4,6 +4,7 @@ import axios from "axios";
 import { useAuthStore } from "../stores/auth";
 import type { Transaction, Category } from "../types";
 import { useRouter } from "vue-router"; // Изменили импорт
+import ExpenseChart from "../components/ExpenseChart.vue";
 
 const auth = useAuthStore();
 const router = useRouter(); // Инициализируем роутер через хук

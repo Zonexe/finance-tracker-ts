@@ -143,7 +143,6 @@ export const deleteTransaction = async (
       return;
     }
 
-    // 1. Ищем транзакцию вместе с категорией
     const transaction = (await Transaction.findByPk(transactionId, {
       include: [Category],
       transaction: t,
@@ -155,14 +154,12 @@ export const deleteTransaction = async (
       return;
     }
 
-    // 2. СРАЗУ проверяем владельца
     if (transaction.userId !== userId) {
       await t.rollback();
       res.status(403).json({ error: "Запрещено удалять чужие записи" });
       return;
     }
 
-    // 3. Ищем пользователя для обновления баланса
     const user = await User.findByPk(userId, { transaction: t });
     if (!user) {
       await t.rollback();
@@ -170,25 +167,19 @@ export const deleteTransaction = async (
       return;
     }
 
-    // 4. МАТЕМАТИКА ВОЗВРАТА (используем данные из найденного объекта)
-    // Внимание: проверь, с какой буквы у тебя Category в модели (обычно с большой)
-    // Используй знак вопроса перед точкой
     if (transaction.Category?.type === "expense") {
       user.balance += Number(transaction.amount);
     } else {
       user.balance -= Number(transaction.amount);
     }
 
-    // 5. СОХРАНЯЕМ И УДАЛЯЕМ (всё внутри транзакции t)
     await user.save({ transaction: t });
     await transaction.destroy({ transaction: t });
 
-    // 6. ФИНАЛ: подтверждаем изменения
     await t.commit();
 
     res.json({ message: "Удалено", newBalance: user.balance });
   } catch (error) {
-    // Если произошла любая ошибка кода или базы — отменяем всё
     await t.rollback();
     console.error(error);
     res.status(500).json({ error: "Ошибка на сервере" });

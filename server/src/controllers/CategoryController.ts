@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { Transaction, Category, User, sequelize } from "../models/associations"; // Используем import
-import { Op } from "sequelize"; // Используем import
+import { Transaction, Category, User, sequelize } from "../models/associations"; 
+import { Op } from "sequelize"; 
 
 export const getCategories = async (
   req: Request,
@@ -31,10 +31,10 @@ export const createCategory = async (
   res: Response,
 ): Promise<void> => {
   try {
-    // 1. Берем только имя и тип. Id база создаст сама.
+
     const { name, type } = req.body;
 
-    // Достаем ID пользователя из токена (уже проверено Middleware)
+
     const currentUserId = req.user?.userId;
 
     if (!currentUserId) {
@@ -42,14 +42,14 @@ export const createCategory = async (
       return;
     }
 
-    // 2. Создаем категорию
+
     const newCategory = await Category.create({
       name,
       type,
       userId: currentUserId, // Привязываем к текущему юзеру
     });
 
-    // 3. Достаем созданную категорию вместе с инфо о создателе (для подтверждения)
+ 
     const result = await Category.findByPk(newCategory.Id, {
       include: [{ model: User, attributes: ["username"] }],
     });
@@ -77,7 +77,7 @@ export const deleteCategory = async (
       return;
     }
 
-    // 1. Ищем категорию, которую хотим удалить
+
     const category = await Category.findByPk(categoryIdToDelete, {
       transaction: t,
     });
@@ -88,49 +88,47 @@ export const deleteCategory = async (
       return;
     }
 
-    // 2. ЗАЩИТА: Запрещаем удалять системные категории (где userId === null)
+ 
     if (category.userId === null) {
       await t.rollback();
       res.status(403).json({ error: "Нельзя удалить системную категорию" });
       return;
     }
 
-    // 3. ЗАЩИТА: Проверяем владельца
+  
     if (category.userId !== currentUserId) {
       await t.rollback();
       res.status(403).json({ error: "Это не ваша категория" });
       return;
     }
 
-    // 4. ЛОГИКА "ДРУГОЕ": Находим или создаем системную категорию для переноса
-    // Мы ищем категорию "Другое", у которой userId равен null
-    // Находим или создаем системную категорию "Другое"
+
     const [otherCategory] = await Category.findOrCreate({
       where: {
         name: "Другое",
         userId: null,
       },
       defaults: {
-        name: "Другое", // Добавляем сюда, чтобы TS не ругался
-        type: "expense", // Указываем тип по умолчанию
-        userId: null, // Явно указываем, что она системная
+        name: "Другое", 
+        type: "expense", 
+        userId: null, 
       },
       transaction: t,
     });
 
-    // 5. ПЕРЕПРИВЯЗКА: Все транзакции старой категории перекидываем на "Другое"
+
     await Transaction.update(
-      { categoryId: otherCategory.Id }, // Новый ID (Другое)
+      { categoryId: otherCategory.Id }, 
       {
         where: { categoryId: categoryIdToDelete },
         transaction: t,
       },
     );
 
-    // 6. УДАЛЕНИЕ самой категории
+
     await category.destroy({ transaction: t });
 
-    // 7. ФИНАЛ
+
     await t.commit();
 
     res.json({ message: "Категория удалена, данные перенесены в 'Другое'" });

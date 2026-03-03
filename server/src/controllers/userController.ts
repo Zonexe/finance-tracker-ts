@@ -31,16 +31,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
-    // 2. Ищем пользователя (не забудь, что у тебя Id с большой буквы)
+
     const user = await User.findOne({ where: { email } });
 
-    // 3. Проверка существования и пароля
-    // ПОДСКАЗКА: if (!user || !(await bcrypt.compare(password, user.password))) { ... }
+
     if (!user || !(await bcrypt.compare(password, user.password))) {
       res.status(401).json({ error: "Неверный логин или пароль" });
       return;
     }
-    // 4. Создание токена
+
     const payload: TokenPayload = {
       userId: user.Id,
       email: user.email,
@@ -49,12 +48,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       expiresIn: "24h",
     });
 
-    // 5. Отправка ответа
+
     res.json({
       token,
       username: user.username,
-      Id: user.Id, // Проверь регистр Id!
-      balance: user.balance, // <--- ОБЯЗАТЕЛЬНО ДОБАВЬ ЭТО
+      Id: user.Id, 
+      balance: user.balance, 
     });
   } catch (error) {
     console.error(error);
